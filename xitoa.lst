@@ -1,0 +1,415 @@
+   1               	# 1 "xitoa.S"
+   1               	;---------------------------------------------------------------------------;
+   0               	
+   0               	
+   2               	; Extended itoa, puts, printf and atoi                     (C)ChaN, 2006
+   3               	;
+   4               	; Module size: 277/261 words (max)
+   5               	;
+   6               	
+  16               	.list
+  17               	
+  18               	#ifdef SPM_PAGESIZE	// Recent devices have "lpm Rd,Z+" and "movw".
+  19               	.macro	_LPMI	reg
+  20               		lpm	\reg, Z+
+  21               	.endm
+  22               	.macro	_MOVW	dh,dl, sh,sl
+  23               		movw	\dl, \sl
+  24               	.endm
+  25               	#else			// Earlier devices do not have "lpm Rd,Z+" nor "movw".
+  26               	.macro	_LPMI	reg
+  27               		lpm
+  28               		mov	\reg, r0
+  29               		adiw	ZL, 1
+  30               	.endm
+  31               	.macro	_MOVW	dh,dl, sh,sl
+  32               		mov	\dl, \sl
+  33               		mov	\dh, \sh
+  34               	.endm
+  35               	#endif
+  36               	
+  37               	
+  38               	
+  39               	;---------------------------------------------------------------------------
+  40               	; Stub function to forward to user output function
+  41               	;
+  42               	;Prototype: void xputc (char chr	// a character to be output
+  43               	;			);
+  44               	;Size: 15/15 words
+  45               	
+  46               	.section .bss
+  47               	
+  48               	.global xfunc_out	; xfunc_out must be initialized before using this module.
+  49 0000 0000      	xfunc_out:	.ds.w	1
+  50               	
+  51               	.section .text
+  52               	
+  53               	
+  54               	.global xputc
+  55               	.func xputc
+  56               	xputc:
+  57:xitoa.S       **** 	cpi	r24, 10		;LF --> CRLF
+  58:xitoa.S       **** 	brne	1f		;
+  59:xitoa.S       **** 	ldi	r24, 13		;
+  60:xitoa.S       **** 	rcall	1f		;
+  61:xitoa.S       **** 	ldi	r24, 10		;/
+  62:xitoa.S       **** 1:	push	ZH
+  63:xitoa.S       **** 	push	ZL
+  64:xitoa.S       **** 	lds	ZL, xfunc_out+0	;Pointer to the registered output function.
+  65:xitoa.S       **** 	lds	ZH, xfunc_out+1	;/
+  66:xitoa.S       **** 	icall
+  67:xitoa.S       **** 	pop	ZL
+  68:xitoa.S       **** 	pop	ZH
+  69:xitoa.S       **** 	ret
+  70               	.endfunc
+  71               	
+  72               	
+  73               	
+  74               	;---------------------------------------------------------------------------
+  75               	; Direct ROM string output
+  76               	;
+  77               	;Prototype: void xputs (const prog_char *str // rom string to be output
+  78               	;			);
+  79               	;Size: 10/7 words
+  80               	
+  81               	#ifdef USE_XPUTS
+  82               	.global xputs
+  83               	.func xputs
+  84               	xputs:
+  85:xitoa.S       **** 	_MOVW	ZH,ZL, r25,r24	; Z = pointer to rom string
+  86:xitoa.S       **** 1:	_LPMI	r24
+  87:xitoa.S       **** 	cpi	r24, 0
+  88:xitoa.S       **** 	breq	2f
+  89:xitoa.S       **** 	rcall	xputc
+  90:xitoa.S       **** 	rjmp	1b
+  91:xitoa.S       **** 2:	ret
+  92               	.endfunc
+  93               	#endif
+  94               	
+  95               	
+  96               	;---------------------------------------------------------------------------
+  97               	; Extended direct numeral string output (32bit version)
+  98               	;
+  99               	;Prototype: void xitoa (long value,	// value to be output
+ 100               	;                       char radix,	// radix
+ 101               	;                       char width);	// minimum width
+ 102               	;Size: 59/59 words
+ 103               	;
+ 104               	
+ 105               	#ifdef USE_XITOA
+ 106               	.global xitoa
+ 107               	.func xitoa
+ 108               	xitoa:
+ 109               					;r25:r22 = value, r20 = base, r18 = digits
+ 110:xitoa.S       **** 	clr	r31		;r31 = stack level
+ 111:xitoa.S       **** 	ldi	r30, ' '	;r30 = sign
+ 112:xitoa.S       **** 	ldi	r19, ' '	;r19 = filler
+ 113:xitoa.S       **** 	sbrs	r20, 7		;When base indicates signd format and the value
+ 114:xitoa.S       **** 	rjmp	0f		;is minus, add a '-'.
+ 115:xitoa.S       **** 	neg	r20		;
+ 116:xitoa.S       **** 	sbrs	r25, 7		;
+ 117:xitoa.S       **** 	rjmp	0f		;
+ 118:xitoa.S       **** 	ldi	r30, '-'	;
+ 119:xitoa.S       **** 	com	r22		;
+ 120:xitoa.S       **** 	com	r23		;
+ 121:xitoa.S       **** 	com	r24		;
+ 122:xitoa.S       **** 	com	r25		;
+ 123:xitoa.S       **** 	adc	r22, r1		;
+ 124:xitoa.S       **** 	adc	r23, r1		;
+ 125:xitoa.S       **** 	adc	r24, r1		;
+ 126:xitoa.S       **** 	adc	r25, r1		;/
+ 127:xitoa.S       **** 0:	sbrs	r18, 7		;When digits indicates zero filled,
+ 128:xitoa.S       **** 	rjmp	1f		;filler is '0'.
+ 129:xitoa.S       **** 	neg	r18		;
+ 130:xitoa.S       **** 	ldi	r19, '0'	;/
+ 131               					;----- string conversion loop
+ 132:xitoa.S       **** 1:	ldi	r21, 32		;r26 = r25:r22 % r20
+ 133:xitoa.S       **** 	clr	r26		;r25:r22 /= r20
+ 134:xitoa.S       **** 2:	lsl	r22		;
+ 135:xitoa.S       **** 	rol	r23		;
+ 136:xitoa.S       **** 	rol	r24		;
+ 137:xitoa.S       **** 	rol	r25		;
+ 138:xitoa.S       **** 	rol	r26		;
+ 139:xitoa.S       **** 	cp	r26, r20	;
+ 140:xitoa.S       **** 	brcs	3f		;
+ 141:xitoa.S       **** 	sub	r26, r20	;
+ 142:xitoa.S       **** 	inc	r22		;
+ 143:xitoa.S       **** 3:	dec	r21		;
+ 144:xitoa.S       **** 	brne	2b		;/
+ 145:xitoa.S       **** 	cpi	r26, 10		;r26 is a numeral digit '0'-'F'
+ 146:xitoa.S       **** 	brcs	4f		;
+ 147:xitoa.S       **** 	subi	r26, -7		;
+ 148:xitoa.S       **** 4:	subi	r26, -'0'	;/
+ 149:xitoa.S       **** 	push	r26		;Stack it
+ 150:xitoa.S       **** 	inc	r31		;/
+ 151:xitoa.S       **** 	cp	r22, r1		;Repeat until r25:r22 gets zero
+ 152:xitoa.S       **** 	cpc	r23, r1		;
+ 153:xitoa.S       **** 	cpc	r24, r1		;
+ 154:xitoa.S       **** 	cpc	r25, r1		;
+ 155:xitoa.S       **** 	brne	1b		;/
+ 156               	
+ 157:xitoa.S       **** 	cpi	r30, '-'	;Minus sign if needed
+ 158:xitoa.S       **** 	brne	5f		;
+ 159:xitoa.S       **** 	push	r30		;
+ 160:xitoa.S       **** 	inc	r31		;/
+ 161:xitoa.S       **** 5:	cp	r31, r18	;Filler
+ 162:xitoa.S       **** 	brcc	6f		;
+ 163:xitoa.S       **** 	push	r19		;
+ 164:xitoa.S       **** 	inc	r31		;
+ 165:xitoa.S       **** 	rjmp	5b		;/
+ 166               	
+ 167:xitoa.S       **** 6:	pop	r24		;Flush stacked digits and exit
+ 168:xitoa.S       **** 	rcall	xputc		;
+ 169:xitoa.S       **** 	dec	r31		;
+ 170:xitoa.S       **** 	brne	6b		;/
+ 171               	
+ 172:xitoa.S       **** 	ret
+ 173               	.endfunc
+ 174               	#endif
+ 175               	
+ 176               	
+ 177               	
+ 178               	;---------------------------------------------------------------------------;
+ 179               	; Formatted string output (16/32bit version)
+ 180               	;
+ 181               	;Prototype:
+ 182               	; void xprintf (const prog_char *format, ...);
+ 183               	;Size: 104/94 words
+ 184               	;
+ 185               	
+ 186               	#ifdef USE_XPRINTF
+ 187               	.global xprintf
+ 188               	.func xprintf
+ 189               	xprintf:
+ 190:xitoa.S       **** 	push	YH
+ 191:xitoa.S       **** 	push	YL
+ 192:xitoa.S       **** 	in	YL, _SFR_IO_ADDR(SPL)
+ 193               	#ifdef SPH
+ 194:xitoa.S       **** 	in	YH, _SFR_IO_ADDR(SPH)
+ 195               	#else
+ 196               		clr	YH
+ 197               	#endif
+ 198               	#if FLASHEND > 0x1FFFF
+ 199               		adiw	YL, 6		;Y = pointer to arguments
+ 200               	#else
+ 201:xitoa.S       **** 	adiw	YL, 5		;Y = pointer to arguments
+ 202               	#endif
+ 203:xitoa.S       **** 	ld	ZL, Y+		;Z = pointer to format string
+ 204:xitoa.S       **** 	ld	ZH, Y+		;/
+ 205               	
+ 206:xitoa.S       **** 0:	_LPMI	r24		;Get a format char
+ 207:xitoa.S       **** 	cpi	r24, 0		;End of format string?
+ 208:xitoa.S       **** 	breq	90f		;/
+ 209:xitoa.S       **** 	cpi	r24, '%'	;Is format?
+ 210:xitoa.S       **** 	breq	20f		;/
+ 211:xitoa.S       **** 1:	rcall	xputc		;Put a normal character
+ 212:xitoa.S       **** 	rjmp	0b		;/
+ 213:xitoa.S       **** 90:	pop	YL
+ 214:xitoa.S       **** 	pop	YH
+ 215:xitoa.S       **** 	ret
+ 216               	
+ 217:xitoa.S       **** 20:	ldi	r18, 0		;r18: digits
+ 218:xitoa.S       **** 	clt			;T: filler
+ 219:xitoa.S       **** 	_LPMI	r21		;Get flags
+ 220:xitoa.S       **** 	cpi	r21, '%'	;Is a %?
+ 221:xitoa.S       **** 	breq	1b		;/
+ 222:xitoa.S       **** 	cpi	r21, '0'	;Zero filled?
+ 223:xitoa.S       **** 	brne	23f		;
+ 224:xitoa.S       **** 	set			;/
+ 225:xitoa.S       **** 22:	_LPMI	r21		;Get width
+ 226:xitoa.S       **** 23:	cpi	r21, '9'+1	;
+ 227:xitoa.S       **** 	brcc	24f		;
+ 228:xitoa.S       **** 	subi	r21, '0'	;
+ 229:xitoa.S       **** 	brcs	90b		;
+ 230:xitoa.S       **** 	lsl	r18		;
+ 231:xitoa.S       **** 	mov	r0, r18		;
+ 232:xitoa.S       **** 	lsl	r18		;
+ 233:xitoa.S       **** 	lsl	r18		;
+ 234:xitoa.S       **** 	add	r18, r0		;
+ 235:xitoa.S       **** 	add	r18, r21	;
+ 236:xitoa.S       **** 	rjmp	22b		;/
+ 237               	
+ 238:xitoa.S       **** 24:	brtc	25f		;get value (low word)
+ 239:xitoa.S       **** 	neg	r18		;
+ 240:xitoa.S       **** 25:	ld	r24, Y+		;
+ 241:xitoa.S       **** 	ld	r25, Y+		;/
+ 242:xitoa.S       **** 	cpi	r21, 'c'	;Is type character?
+ 243:xitoa.S       **** 	breq	1b		;/
+ 244:xitoa.S       **** 	cpi	r21, 's'	;Is type RAM string?
+ 245:xitoa.S       **** 	breq	50f		;/
+ 246:xitoa.S       **** 	cpi	r21, 'S'	;Is type ROM string?
+ 247:xitoa.S       **** 	breq	60f		;/
+ 248:xitoa.S       **** 	_MOVW	r23,r22,r25,r24	;r25:r22 = value
+ 249:xitoa.S       **** 	clr	r24		;
+ 250:xitoa.S       **** 	clr	r25		;
+ 251:xitoa.S       **** 	clt			;/
+ 252:xitoa.S       **** 	cpi	r21, 'l'	;Is long int?
+ 253:xitoa.S       **** 	brne	26f		;
+ 254:xitoa.S       **** 	ld	r24, Y+		;get value (high word)
+ 255:xitoa.S       **** 	ld	r25, Y+		;
+ 256:xitoa.S       **** 	set			;
+ 257:xitoa.S       **** 	_LPMI	r21		;/
+ 258:xitoa.S       **** 26:	cpi	r21, 'd'	;Is type signed decimal?
+ 259:xitoa.S       **** 	brne	27f		;/
+ 260:xitoa.S       **** 	ldi	r20, -10	;
+ 261:xitoa.S       **** 	brts	40f		;
+ 262:xitoa.S       **** 	sbrs	r23, 7		;
+ 263:xitoa.S       **** 	rjmp	40f		;
+ 264:xitoa.S       **** 	ldi	r24, -1		;
+ 265:xitoa.S       **** 	ldi	r25, -1		;
+ 266:xitoa.S       **** 	rjmp	40f		;/
+ 267:xitoa.S       **** 27:	cpi	r21, 'u'	;Is type unsigned decimal?
+ 268:xitoa.S       **** 	ldi	r20, 10		;
+ 269:xitoa.S       **** 	breq	40f		;/
+ 270:xitoa.S       **** 	cpi	r21, 'X'	;Is type hexdecimal?
+ 271:xitoa.S       **** 	ldi	r20, 16		;
+ 272:xitoa.S       **** 	breq	40f		;/
+ 273:xitoa.S       **** 	cpi	r21, 'b'	;Is type binary?
+ 274:xitoa.S       **** 	ldi	r20, 2		;
+ 275:xitoa.S       **** 	breq	40f		;/
+ 276:xitoa.S       **** 	rjmp	90b		;abort
+ 277:xitoa.S       **** 40:	push	ZH		;Output the value
+ 278:xitoa.S       **** 	push	ZL		;
+ 279:xitoa.S       **** 	rcall	xitoa		;
+ 280:xitoa.S       **** 42:	pop	ZL		;
+ 281:xitoa.S       **** 	pop	ZH		;
+ 282:xitoa.S       **** 	rjmp	0b		;/
+ 283               	
+ 284:xitoa.S       **** 50:	push	ZH		;Put a string on the RAM
+ 285:xitoa.S       **** 	push	ZL
+ 286:xitoa.S       **** 	_MOVW	ZH,ZL, r25,r24
+ 287:xitoa.S       **** 51:	ld	r24, Z+
+ 288:xitoa.S       **** 	cpi	r24, 0
+ 289:xitoa.S       **** 	breq	42b
+ 290:xitoa.S       **** 	rcall	xputc
+ 291:xitoa.S       **** 	rjmp	51b
+ 292               	
+ 293:xitoa.S       **** 60:	push	ZH		;Put a string on the ROM
+ 294:xitoa.S       **** 	push	ZL
+ 295:xitoa.S       **** 	rcall	xputs
+ 296:xitoa.S       **** 	rjmp	42b
+ 297               	
+ 298               	.endfunc
+ 299               	#endif
+ 300               	
+ 301               	
+ 302               	
+ 303               	;---------------------------------------------------------------------------
+ 304               	; Extended numeral string input
+ 305               	;
+ 306               	;Prototype:
+ 307               	; char xatoi (           /* 1: Successful, 0: Failed */
+ 308               	;      const char **str, /* pointer to pointer to source string */
+ 309               	;      long *res         /* result */
+ 310               	; );
+ 311               	;Size: 94/91 words
+ 312               	;
+ 313               	
+ 314               	#ifdef USE_XATOI
+ 315               	.global xatoi
+ 316               	.func xatoi
+ 317               	xatoi:
+ 318:xitoa.S       **** 	_MOVW	r1, r0, r23, r22
+ 319:xitoa.S       **** 	_MOVW	XH, XL, r25, r24
+ 320:xitoa.S       **** 	ld	ZL, X+
+ 321:xitoa.S       **** 	ld	ZH, X+
+ 322:xitoa.S       **** 	clr	r18		;r21:r18 = 0;
+ 323:xitoa.S       **** 	clr	r19		;
+ 324:xitoa.S       **** 	clr	r20		;
+ 325:xitoa.S       **** 	clr	r21		;/
+ 326:xitoa.S       **** 	clt			;T = 0;
+ 327               	
+ 328:xitoa.S       **** 	ldi	r25, 10		;r25 = 10;
+ 329:xitoa.S       **** 	rjmp	41f		;/
+ 330:xitoa.S       **** 40:	adiw	ZL, 1		;Z++;
+ 331:xitoa.S       **** 41:	ld	r22, Z		;r22 = *Z;
+ 332:xitoa.S       **** 	cpi	r22, ' '	;if(r22 == ' ') continue
+ 333:xitoa.S       **** 	breq	40b		;/
+ 334:xitoa.S       **** 	brcs	70f		;if(r22 < ' ') error;
+ 335:xitoa.S       **** 	cpi	r22, '-'	;if(r22 == '-') {
+ 336:xitoa.S       **** 	brne	42f		; T = 1;
+ 337:xitoa.S       **** 	set			; continue;
+ 338:xitoa.S       **** 	rjmp	40b		;}
+ 339:xitoa.S       **** 42:	cpi	r22, '9'+1	;if(r22 > '9') error;
+ 340:xitoa.S       **** 	brcc	70f		;/
+ 341:xitoa.S       **** 	cpi	r22, '0'	;if(r22 < '0') error;
+ 342:xitoa.S       **** 	brcs	70f		;/
+ 343:xitoa.S       **** 	brne	51f		;if(r22 > '0') cv_start;
+ 344:xitoa.S       **** 	ldi	r25, 8		;r25 = 8;
+ 345:xitoa.S       **** 	adiw	ZL, 1		;r22 = *(++Z);
+ 346:xitoa.S       **** 	ld	r22, Z		;/
+ 347:xitoa.S       **** 	cpi	r22, ' '+1	;if(r22 <= ' ') exit;
+ 348:xitoa.S       **** 	brcs	80f		;/
+ 349:xitoa.S       **** 	cpi	r22, 'b'	;if(r22 == 'b') {
+ 350:xitoa.S       **** 	brne	43f		; r25 = 2;
+ 351:xitoa.S       **** 	ldi	r25, 2		; cv_start;
+ 352:xitoa.S       **** 	rjmp	50f		;}
+ 353:xitoa.S       **** 43:	cpi	r22, 'x'	;if(r22 != 'x') error;
+ 354:xitoa.S       **** 	brne	51f		;/
+ 355:xitoa.S       **** 	ldi	r25, 16		;r25 = 16;
+ 356               	
+ 357:xitoa.S       **** 50:	adiw	ZL, 1		;Z++;
+ 358:xitoa.S       **** 	ld	r22, Z		;r22 = *Z;
+ 359:xitoa.S       **** 51:	cpi	r22, ' '+1	;if(r22 <= ' ') break;
+ 360:xitoa.S       **** 	brcs	80f		;/
+ 361:xitoa.S       **** 	cpi	r22, 'a'	;if(r22 >= 'a') r22 =- 0x20;
+ 362:xitoa.S       **** 	brcs	52f		;
+ 363:xitoa.S       **** 	subi	r22, 0x20	;/
+ 364:xitoa.S       **** 52:	subi	r22, '0'	;if((r22 -= '0') < 0) error;
+ 365:xitoa.S       **** 	brcs	70f		;/
+ 366:xitoa.S       **** 	cpi	r22, 10		;if(r22 >= 10) {
+ 367:xitoa.S       **** 	brcs	53f		; r22 -= 7;
+ 368:xitoa.S       **** 	subi	r22, 7		; if(r22 < 10) 
+ 369:xitoa.S       **** 	cpi	r22, 10		;
+ 370:xitoa.S       **** 	brcs	70f		;}
+ 371:xitoa.S       **** 53:	cp	r22, r25	;if(r22 >= r25) error;
+ 372:xitoa.S       **** 	brcc	70f		;/
+ 373:xitoa.S       **** 60:	ldi	r24, 33		;r21:r18 *= r25;
+ 374:xitoa.S       **** 	sub	r23, r23	;
+ 375:xitoa.S       **** 61:	brcc	62f		;
+ 376:xitoa.S       **** 	add	r23, r25	;
+ 377:xitoa.S       **** 62:	lsr	r23		;
+ 378:xitoa.S       **** 	ror	r21		;
+ 379:xitoa.S       **** 	ror	r20		;
+ 380:xitoa.S       **** 	ror	r19		;
+ 381:xitoa.S       **** 	ror	r18		;
+ 382:xitoa.S       **** 	dec	r24		;
+ 383:xitoa.S       **** 	brne	61b		;/
+ 384:xitoa.S       **** 	add	r18, r22	;r21:r18 += r22;
+ 385:xitoa.S       **** 	adc	r19, r24	;
+ 386:xitoa.S       **** 	adc	r20, r24	;
+ 387:xitoa.S       **** 	adc	r21, r24	;/
+ 388:xitoa.S       **** 	rjmp	50b		;repeat
+ 389               	
+ 390:xitoa.S       **** 70:	ldi	r24, 0
+ 391:xitoa.S       **** 	rjmp	81f
+ 392:xitoa.S       **** 80:	ldi	r24, 1
+ 393:xitoa.S       **** 81:	brtc	82f
+ 394:xitoa.S       **** 	clr	r22
+ 395:xitoa.S       **** 	com	r18
+ 396:xitoa.S       **** 	com	r19
+ 397:xitoa.S       **** 	com	r20
+ 398:xitoa.S       **** 	com	r21
+ 399:xitoa.S       **** 	adc	r18, r22
+ 400:xitoa.S       **** 	adc	r19, r22
+ 401:xitoa.S       **** 	adc	r20, r22
+ 402:xitoa.S       **** 	adc	r21, r22
+ 403:xitoa.S       **** 82:	st	-X, ZH
+ 404:xitoa.S       **** 	st	-X, ZL
+ 405:xitoa.S       **** 	_MOVW	XH, XL, r1, r0
+ 406:xitoa.S       **** 	st	X+, r18
+ 407:xitoa.S       **** 	st	X+, r19
+ 408:xitoa.S       **** 	st	X+, r20
+ 409:xitoa.S       **** 	st	X+, r21
+ 410:xitoa.S       **** 	clr	r1
+ 411:xitoa.S       **** 	ret
+ 412               	.endfunc
+DEFINED SYMBOLS
+             xitoa.S:49     .bss:00000000 xfunc_out
+             xitoa.S:56     .text:00000000 xputc
+             xitoa.S:84     .text:0000001e xputs
+             xitoa.S:108    .text:0000002c xitoa
+             xitoa.S:189    .text:000000a2 xprintf
+             xitoa.S:317    .text:0000015e xatoi
+
+NO UNDEFINED SYMBOLS

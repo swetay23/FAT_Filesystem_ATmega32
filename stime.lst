@@ -1,0 +1,262 @@
+   1               	# 1 "stime.S"
+   1               	;---------------------------------------------------------------------------;
+   0               	
+   0               	
+   2               	; Simple time functions                                     (C)ChaN,2005
+   3               	;
+   4               	; mktime() and gmtime() are sub-set of the functions defined in ANSI C.
+   5               	; tm_isdst member is not returned and assumed as zero.
+   6               	; mktime() does not change given tm structure and each members must be
+   7               	; normalized or it returns -1.
+   8               	
+  22               	.list
+  23               	
+  24               	
+  25               	.section .bss
+  26               	.global time_tm
+  27               	time_tm:		; Static tm structure
+  28 0000 0000 0000 		.ds.w	9	; { sec, min, hour, mday, mon, year, wday, yday, isdst }
+  28      0000 0000 
+  28      0000 0000 
+  28      0000 0000 
+  28      0000 
+  29               	
+  30               	
+  31               	.section .text
+  32               	samurai:
+  33 0000 1F1D 1F1E 		.dc.b	31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+  33      1F1E 1F1F 
+  33      1E1F 1E1F 
+  34               	
+  35               	
+  36               	;---------------------------------------------------------------------------;
+  37               	; time_t mktime( struct tm *timeptr );
+  38               	;
+  39               	;Size: 89/88 words
+  40               	
+  41               	.global mktime
+  42               	.func mktime
+  43               	mktime:
+  44:stime.S       **** 	push	YL
+  45:stime.S       **** 	push	YH
+  46:stime.S       **** 	_MOVW	YH,YL, r25,r24
+  47:stime.S       **** 	adiw	YL, 12
+  48               	
+  49:stime.S       **** 	ldi	r20, 138	; (365..366) * tm_year
+  50:stime.S       **** 	rcall	ldcp16
+  51:stime.S       **** 	clr	r22
+  52:stime.S       **** 	clr	r23
+  53:stime.S       **** 	ldi	r19, 70
+  54:stime.S       **** 0:	ldi	XL, lo8(366)
+  55:stime.S       **** 	ldi	XH, hi8(366)
+  56:stime.S       **** 	mov	r21, r19
+  57:stime.S       **** 	andi	r21, 3
+  58:stime.S       **** 	breq	1f
+  59:stime.S       **** 	sbiw	XL, 1
+  60:stime.S       **** 1:	cp	r19, r18
+  61:stime.S       **** 	breq	2f
+  62:stime.S       **** 	brcc	91f
+  63:stime.S       **** 	add	r22, XL
+  64:stime.S       **** 	adc	r23, XH
+  65:stime.S       **** 	inc	r19
+  66:stime.S       **** 	rjmp	0b
+  67               	2:
+  68:stime.S       **** 	ldi	r20, 12		; + (28..31) * tm_mon
+  69:stime.S       **** 	rcall	ldcp16
+  70:stime.S       **** 	ldi	ZL, lo8(samurai)
+  71:stime.S       **** 	ldi	ZH, hi8(samurai)
+  72:stime.S       **** 	ldi	r19, 0
+  73:stime.S       **** 3:	lpm
+  74:stime.S       **** 	adiw	ZL, 1
+  75:stime.S       **** 	cpi	r19, 1
+  76:stime.S       **** 	brne	4f
+  77:stime.S       **** 	cpse	r21, r1
+  78:stime.S       **** 	dec	r0
+  79:stime.S       **** 4:	cp	r19, r18
+  80:stime.S       **** 	brcc	5f
+  81:stime.S       **** 	add	r22, r0
+  82:stime.S       **** 	adc	r23, r1
+  83:stime.S       **** 	inc	r19
+  84:stime.S       **** 	rjmp	3b
+  85               	5:
+  86:stime.S       **** 	mov	r20, r0		; + tm_mday
+  87:stime.S       **** 	inc	r20
+  88:stime.S       **** 	rcall	ldcp16
+  89:stime.S       **** 	subi	r18, 1
+  90:stime.S       **** 	brcs	91f
+  91:stime.S       **** 	add	r22, r18
+  92:stime.S       **** 	adc	r23, r1
+  93:stime.S       **** 	clr	r24
+  94:stime.S       **** 	clr	r25
+  95               		; r25:r22 = days from orign
+  96               	
+  97:stime.S       **** 	ldi	r20, 24		; * 24 + tm_hour
+  98:stime.S       **** 	rcall	ldcp16
+  99:stime.S       **** 	rcall	muladd3208
+ 100               	
+ 101:stime.S       **** 	ldi	r20, 60		; * 60 + tm_min
+ 102:stime.S       **** 	rcall	ldcp16
+ 103:stime.S       **** 	rcall	muladd3208
+ 104               	
+ 105:stime.S       **** 	ldi	r18, 60		; * 60 + tm_sec
+ 106:stime.S       **** 	rcall	ldcp16
+ 107:stime.S       **** 	rcall	muladd3208
+ 108:stime.S       **** 	rjmp	92f
+ 109               	
+ 110:stime.S       **** ldcp16:	ld	r19, -Y		; Load an item with error check (< r20)
+ 111:stime.S       **** 	ld	r18, -Y
+ 112:stime.S       **** 	cp	r18, r20
+ 113:stime.S       **** 	cpc	r19, r1
+ 114:stime.S       **** 	brcs	93f
+ 115:stime.S       **** 	pop	r0
+ 116:stime.S       **** 	pop	r0
+ 117               	
+ 118:stime.S       **** 91:	ldi	r22, -1		; parameter error
+ 119:stime.S       **** 	ldi	r23, -1
+ 120:stime.S       **** 	ldi	r24, -1
+ 121:stime.S       **** 	ldi	r25, -1
+ 122               	
+ 123:stime.S       **** 92:	pop	YH
+ 124:stime.S       **** 	pop	YL
+ 125:stime.S       **** 93:	ret
+ 126               	
+ 127               	muladd3208:
+ 128:stime.S       **** 	ldi	r21, 33		; r25:r22 *= r20;
+ 129:stime.S       **** 	sub	r26, r26
+ 130:stime.S       **** 0:	brcc	1f
+ 131:stime.S       **** 	add	r26, r20
+ 132:stime.S       **** 1:	ror	r26
+ 133:stime.S       **** 	ror	r25
+ 134:stime.S       **** 	ror	r24
+ 135:stime.S       **** 	ror	r23
+ 136:stime.S       **** 	ror	r22
+ 137:stime.S       **** 	dec	r21
+ 138:stime.S       **** 	brne	0b
+ 139:stime.S       **** 	add	r22, r18	; r25:r22 += r18;
+ 140:stime.S       **** 	adc	r23, r1
+ 141:stime.S       **** 	adc	r24, r1
+ 142:stime.S       **** 	adc	r25, r1
+ 143:stime.S       **** 	ret
+ 144               	.endfunc
+ 145               	
+ 146               	
+ 147               	
+ 148               	;---------------------------------------------------------------------------;
+ 149               	; struct tm *gmtime( const time_t *timer );
+ 150               	;
+ 151               	;Size: 93/89 words
+ 152               	
+ 153               	.global gmtime
+ 154               	.func gmtime
+ 155               	gmtime:
+ 156:stime.S       **** 	push	YL
+ 157:stime.S       **** 	push	YH
+ 158               	
+ 159:stime.S       **** 	_MOVW	ZH,ZL, r25,r24		;r21:r18 = utc
+ 160:stime.S       **** 	ldd	r18, Z+0		;
+ 161:stime.S       **** 	ldd	r19, Z+1		;
+ 162:stime.S       **** 	ldd	r20, Z+2		;
+ 163:stime.S       **** 	ldd	r21, Z+3		;/
+ 164:stime.S       **** 	clr	YL			;Invalid time?
+ 165:stime.S       **** 	clr	YH			;
+ 166:stime.S       **** 	sbrc	r21, 7			;
+ 167:stime.S       **** 	rjmp	99f			;/
+ 168:stime.S       **** 	ldi	YL, lo8(time_tm)
+ 169:stime.S       **** 	ldi	YH, hi8(time_tm)
+ 170               		; r21:r18 = seconds from origin
+ 171               	
+ 172:stime.S       **** 	ldi	r22, 60			;tm_sec = % 60
+ 173:stime.S       **** 	rcall	div3208			;
+ 174:stime.S       **** 	std	Y+0, r0			;
+ 175:stime.S       **** 	std	Y+1, r1			;/
+ 176:stime.S       **** 	rcall	div3208			;tm_min = % 60
+ 177:stime.S       **** 	std	Y+2, r0			;
+ 178:stime.S       **** 	std	Y+3, r1			;/
+ 179:stime.S       **** 	ldi	r22, 24			;tm_hour = % 24
+ 180:stime.S       **** 	rcall	div3208			;
+ 181:stime.S       **** 	std	Y+4, r0			;
+ 182:stime.S       **** 	std	Y+5, r1			;/
+ 183               		; r19:r18 = days from origin
+ 184               	
+ 185:stime.S       **** 	_MOVW	ZH,ZL, r19,r18
+ 186:stime.S       **** 	subi	r18, lo8(-4)		;tm_wday
+ 187:stime.S       **** 	sbci	r19, hi8(-4)		;
+ 188:stime.S       **** 	ldi	r22, 7			;
+ 189:stime.S       **** 	rcall	div3208			;
+ 190:stime.S       **** 	std	Y+12, r0		;
+ 191:stime.S       **** 	std	Y+13, r1		;/
+ 192:stime.S       **** 	_MOVW	r19,r18, ZH,ZL
+ 193               	
+ 194:stime.S       **** 	ldi	XL, 70			;tm_year
+ 195:stime.S       **** 0:	ldi	ZL, lo8(366)		;
+ 196:stime.S       **** 	ldi	ZH, hi8(366)		;
+ 197:stime.S       **** 	mov	XH, XL			;
+ 198:stime.S       **** 	andi	XH, 3			;
+ 199:stime.S       **** 	breq	1f			;
+ 200:stime.S       **** 	sbiw	ZL, 1			;
+ 201:stime.S       **** 1:	cp	r18, ZL			;
+ 202:stime.S       **** 	cpc	r19, ZH			;
+ 203:stime.S       **** 	brcs	2f			;
+ 204:stime.S       **** 	sub	r18, ZL			;
+ 205:stime.S       **** 	sbc	r19, ZH			;
+ 206:stime.S       **** 	inc	XL			;
+ 207:stime.S       **** 	rjmp	0b			;
+ 208:stime.S       **** 2:	std	Y+10, XL		;
+ 209:stime.S       **** 	std	Y+11, r1		;/
+ 210:stime.S       **** 	std	Y+14, r18		;tm_yday
+ 211:stime.S       **** 	std	Y+15, r19		;/
+ 212               		; r19:r18 = days in year
+ 213               	
+ 214:stime.S       **** 	ldi	ZL, lo8(samurai)	;tm_mon
+ 215:stime.S       **** 	ldi	ZH, hi8(samurai)	;
+ 216:stime.S       **** 	clr	XL			;
+ 217:stime.S       **** 3:	lpm				;
+ 218:stime.S       **** 	adiw	ZL, 1			;
+ 219:stime.S       **** 	cpi	XL, 1			;
+ 220:stime.S       **** 	brne	4f			;
+ 221:stime.S       **** 	cpse	XH, r1			;
+ 222:stime.S       **** 	dec	r0			;
+ 223:stime.S       **** 4:	cp	r18, r0			;
+ 224:stime.S       **** 	cpc	r19, r1			;
+ 225:stime.S       **** 	brcs	5f			;
+ 226:stime.S       **** 	sub	r18, r0			;
+ 227:stime.S       **** 	sbc	r19, r1			;
+ 228:stime.S       **** 	inc	XL			;
+ 229:stime.S       **** 	rjmp	3b			;
+ 230:stime.S       **** 5:	std	Y+8, XL			;
+ 231:stime.S       **** 	std	Y+9, r1			;/
+ 232:stime.S       **** 	inc	r18			;tm_mday
+ 233:stime.S       **** 	std	Y+6, r18		;
+ 234:stime.S       **** 	std	Y+7, r19		;/
+ 235               	
+ 236:stime.S       **** 99:	_MOVW	r25,r24, YH,YL		;Return pointer to internal tm buffer
+ 237:stime.S       **** 	pop	YH
+ 238:stime.S       **** 	pop	YL
+ 239:stime.S       **** 	ret
+ 240               	
+ 241               	div3208:			; r0 = r21:r18 % r22;
+ 242:stime.S       **** 	clr	r0		; r21:r18 /= r22;
+ 243:stime.S       **** 	ldi	r23, 32
+ 244:stime.S       **** 1:	lsl	r18
+ 245:stime.S       **** 	rol	r19
+ 246:stime.S       **** 	rol	r20
+ 247:stime.S       **** 	rol	r21
+ 248:stime.S       **** 	rol	r0
+ 249:stime.S       **** 	cp	r0, r22
+ 250:stime.S       **** 	brcs	2f
+ 251:stime.S       **** 	sub	r0, r22
+ 252:stime.S       **** 	inc	r18
+ 253:stime.S       **** 2:	dec	r23
+ 254:stime.S       **** 	brne	1b
+ 255:stime.S       **** 	ret
+ 256               	.endfunc
+DEFINED SYMBOLS
+             stime.S:27     .bss:00000000 time_tm
+             stime.S:32     .text:00000000 samurai
+             stime.S:43     .text:0000000c mktime
+             stime.S:110    .text:00000080 ldcp16
+             stime.S:127    .text:0000009c muladd3208
+             stime.S:155    .text:000000bc gmtime
+             stime.S:241    .text:00000152 div3208
+
+NO UNDEFINED SYMBOLS

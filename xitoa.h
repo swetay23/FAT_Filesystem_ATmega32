@@ -7,6 +7,7 @@
 #define XITOA
 
 #include <avr/pgmspace.h>
+#define prog_char char PROGMEM 
 
 extern void (*xfunc_out)(char);
 

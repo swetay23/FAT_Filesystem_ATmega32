@@ -92,7 +92,8 @@ void uart_put (uint8_t d)
 
 /* UART RXC interrupt */
 
-SIGNAL(SIG_UART_RECV)
+//SIGNAL(SIG_UART_RECV)
+ISR(USART_RX_vect)
 {
 	uint8_t d, n, i;
 
@@ -112,7 +113,8 @@ SIGNAL(SIG_UART_RECV)
 
 /* UART UDRE interrupt */
 
-SIGNAL(SIG_UART_DATA)
+//SIGNAL(SIG_UART_DATA)
+ISR(USART_UDRE_vect) 
 {
 	uint8_t n, i;
 
